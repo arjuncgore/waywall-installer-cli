@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 clearscreen = "4.0.6"
+is-root = "0.1.3"
+

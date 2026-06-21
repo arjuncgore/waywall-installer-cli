@@ -1,7 +1,27 @@
-use std::io::{self, Write};     // Inputs
-use std::process::Command;      // Commands
+use std::io::{self, Write};    // Inputs
+use std::process::Command;     // Commands
+use std::process;              // Process handling
+use std::fs;                   // Read file
+use is_root::is_root;          // Detect sudo
 
 fn main() {
+    // ==== Detect if program is ran with sudo ================================
+    if !is_root() {
+        eprintln!("Error: You have to run this program with root.");
+        process::exit(1);
+    }
+
+    // ==== Detect distro =====================================================
+    let _distro = fs::read_to_string("/etc/os-release").unwrap();
+    let distro: &str = _distro
+        .lines()
+        .find(|l| l.starts_with("ID_LIKE="))
+        .or_else(|| _distro.lines().find(|l| l.starts_with("ID=")))
+        .and_then(|l| l.split('=').nth(1))
+        .and_then(|l| l.split(' ').last())
+        .map(|l| l.trim_matches('"'))
+        .unwrap_or("unknown");
+
     // ==== Options (defaults) ================================================
     let installation_type: i32;                     // 0: cancel    1: default  2: custom
     let mut waywall_install: i32 = 1;               // 0: cancel    1: stable   2: latest   3: skip
@@ -10,6 +30,10 @@ fn main() {
     let mut is_internal_gpu: bool = false;          // If needed to not check "Use Discrete GPU"
     let mut is_latest_version: bool = false;        // For all the 26.1 tech
     let mut use_generic_config: bool = true;        // Clones generic config to ~/.config/waywall
+    let waywall_release_tag: &str = "0.2026.06.13"; // Waywall release tag in github releases
+    let _user: String = String::from_utf8(Command::new("logname").output().expect("err").stdout)
+        .unwrap();        // Get user because of some wierd behaviour
+    let user: &str = _user.trim();
 
     // ==== Prompts ===========================================================
 
@@ -150,8 +174,45 @@ Press Enter to cancel installation
     println!("    Latest Version:           {}", if is_latest_version {"True"} else {"False"});
     println!("    Install Generic Config:   {}", if use_generic_config {"True"} else {"False"});
 
-
+    
     // ==== Installation ======================================================
+    //
+    // === Waywall installation
+    waywall(waywall_install, distro, waywall_release_tag, use_generic_config, user);
+}
+
+fn waywall(itype: i32, distro: &str, waywall_tag: &str, use_generic_config: bool, user: &str) {
+    // Install waywall
+    println!("curl -fsSL https://github.com/tesselslate/waywall/releases/download/{}/waywall-0.5-1-x86_64.pkg.tar.zst -o /tmp/waywall.pkg.tar.zst", waywall_tag);
+    if itype == 1 {
+        // Download the waywall package
+        match distro {
+            "arch" => run_command(&format!("curl -fsSL https://github.com/tesselslate/waywall/releases/download/{}/waywall-0.5-1-x86_64.pkg.tar.zst -o /tmp/waywall.pkg.tar.zst", waywall_tag)),
+            "fedora" => run_command(&format!("curl -fsSL https://github.com/tesselslate/waywall/releases/download/{}/waywall-0.5-1.fc42.x86_64.rpm -o /tmp/waywall.rpm", waywall_tag)),
+            "debian" => run_command(&format!("curl -fsSL https://github.com/tesselslate/waywall/releases/download/{}/waywall_0.5-1_amd64.deb -o /tmp/waywall.deb", waywall_tag)),
+            _ => println!("Unknown distro type found: {}", distro),
+        }
+        // Install the waywall package
+        match distro {
+            "arch" => run_command("pacman -U /tmp/waywall.pkg.tar.zst"),
+            "fedora" => run_command("dnf localinstall /tmp/waywall.rpm"),
+            "debian" => run_command("apt install -y /tmp/waywall.deb"),
+            _ => println!("Unknown distro type found: {}", distro),
+        }
+    }
+    else {
+        // Build from source with ByPaco's script
+        run_command("git clone https://github.com/tesselslate/waywall.git /tmp/waywall && git clone https://github.com/pacur/pacur.git /tmp/waywall/pacur");
+        run_command("bash -c \"cd /tmp/waywall/pacur; find . -mindepth 1 -maxdepth 1 -type d \\( ! -name 'archlinux' ! -name 'debian-trixie' ! -name 'fedora-42' \\) -exec rm -rf {} + && for dir in */; do podman build --rm -t \\\"pacur/${dir%/}\\\" \\\"$dir\\\"; done\"");
+        run_command(&format!("(cd /tmp/waywall; ./build-packages.sh --{})", distro));
+    }
+    if use_generic_config {
+        // Download generic
+        println!("Downloading Gore's generic config");
+        run_command(&format!("[ -d /home/{}/.config/waywall ] && mv /home/{}/.config/waywall /home/{}/.config/waywall.bkp >/dev/null 2>&1 || true", user, user, user)); // Check for existing configuration and incase of it existing move it to a backup
+        run_command(&format!("git clone https://github.com/arjuncgore/waywall_generic_config.git /home/{}/.config/waywall", user)); // Download it
+        println!("Generic config downloaded!");
+    }
 }
 
 fn header() {
@@ -162,7 +223,7 @@ fn header() {
 ====================================================="#);
 }
 
-fn ask(prompt: &str) -> String{
+fn ask(prompt: &str) -> String {
     println!("{}", prompt);
 
     io::stdout().flush().expect("Failed to flush stdout");
@@ -176,7 +237,6 @@ fn ask(prompt: &str) -> String{
 }
 
 fn to_int(input: &str, min: i32, max: i32) -> i32{
-
     // Convert to integer
     let int_input: i32 = match input.trim().parse() {
         Ok(num) => {
@@ -198,18 +258,14 @@ fn to_int(input: &str, min: i32, max: i32) -> i32{
 }
 
 fn run_command(cmd: &str) {
-    let output = Command::new("sh")
+    let status = Command::new("sh")
         .arg("-c")
         .arg(cmd)
-        .output()
+        .status()
         .expect("Failed to execute command");
 
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        println!("Success:\n{}", stdout);
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        eprintln!("Error:\n{}", stderr);
+    if !status.success() {
+        eprintln!("Command failed with status: {}", status);
     }
 }
 
