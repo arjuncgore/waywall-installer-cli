@@ -2,15 +2,8 @@ use std::io::{self, Write};    // Inputs
 use std::process::Command;     // Commands
 use std::process;              // Process handling
 use std::fs;                   // Read file
-use is_root::is_root;          // Detect sudo
 
 fn main() {
-    // ==== Detect if program is ran with sudo ================================
-    if !is_root() {
-        eprintln!("Error: You have to run this program with root.");
-        process::exit(1);
-    }
-
     // ==== Detect distro =====================================================
     let _distro = fs::read_to_string("/etc/os-release").unwrap();
     let distro: &str = _distro
