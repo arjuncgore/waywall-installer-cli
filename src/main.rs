@@ -169,12 +169,17 @@ Press Enter to cancel installation
 
     
     // ==== Installation ======================================================
-    //
+
     // === Waywall installation
-    waywall(waywall_install, distro, waywall_release_tag, use_generic_config, user);
+    waywall(waywall_install, distro, waywall_release_tag);
+
+    // == Install Generic Config
+    if use_generic_config {
+        install_generic(user);
+    }
 }
 
-fn waywall(itype: i32, distro: &str, waywall_tag: &str, use_generic_config: bool, user: &str) {
+fn waywall(itype: i32, distro: &str, waywall_tag: &str) {
     // Install waywall
     println!("curl -fsSL https://github.com/tesselslate/waywall/releases/download/{}/waywall-0.5-1-x86_64.pkg.tar.zst -o /tmp/waywall.pkg.tar.zst", waywall_tag);
     if itype == 1 {
@@ -190,24 +195,25 @@ fn waywall(itype: i32, distro: &str, waywall_tag: &str, use_generic_config: bool
             "arch" => run_command("pacman -U /tmp/waywall.pkg.tar.zst"),
             "fedora" => run_command("dnf localinstall /tmp/waywall.rpm"),
             "debian" => run_command("apt install -y /tmp/waywall.deb"),
-            _ => println!("Unknown distro type found: {}", distro),
+            _ => {
+                println!("Unknown distro type found: {}", distro);
+                process::exit(1);
+            },
         }
     }
     else {
-        // Build from source with ByPaco's script
-        run_command("git clone https://github.com/tesselslate/waywall.git /tmp/waywall && git clone https://github.com/pacur/pacur.git /tmp/waywall/pacur");
-        run_command("bash -c \"cd /tmp/waywall/pacur; find . -mindepth 1 -maxdepth 1 -type d \\( ! -name 'archlinux' ! -name 'debian-trixie' ! -name 'fedora-42' \\) -exec rm -rf {} + && for dir in */; do podman build --rm -t \\\"pacur/${dir%/}\\\" \\\"$dir\\\"; done\"");
-        run_command(&format!("(cd /tmp/waywall; ./build-packages.sh --{})", distro));
-    }
-    if use_generic_config {
-        // Download generic
-        println!("Downloading Gore's generic config");
-        run_command(&format!("[ -d /home/{}/.config/waywall ] && mv /home/{}/.config/waywall /home/{}/.config/waywall.bkp >/dev/null 2>&1 || true", user, user, user)); // Check for existing configuration and incase of it existing move it to a backup
-        run_command(&format!("git clone https://github.com/arjuncgore/waywall_generic_config.git /home/{}/.config/waywall", user)); // Download it
-        println!("Generic config downloaded!");
+        // Build from source
+        // ...
     }
 }
 
+fn install_generic(user: &str) {
+    // Download generic
+    println!("Downloading Gore's generic config");
+    run_command(&format!("[ -d /home/{}/.config/waywall ] && mv /home/{}/.config/waywall /home/{}/.config/waywall.bkp >/dev/null 2>&1 || true", user, user, user)); // Check for existing configuration and incase of it existing move it to a backup
+    run_command(&format!("git clone https://github.com/arjuncgore/waywall_generic_config.git /home/{}/.config/waywall", user)); // Download it
+    println!("Generic config downloaded!");
+}
 fn header() {
     clearscreen::clear().expect("Failed to clear screen");
     println!(r#"=====================================================
