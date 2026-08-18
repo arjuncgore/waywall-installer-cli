@@ -2,15 +2,11 @@ use std::io::{self, Write};    // Inputs
 use std::process::Command;     // Commands
 use std::process;              // Process handling
 use std::fs;                   // Read file
-use is_root::is_root;          // Detect sudo
+use std::path::Path;           // Check existing checkout
+
+const WAYWALL_REPO_URL: &str = "https://github.com/tesselslate/waywall";
 
 fn main() {
-    // ==== Detect if program is ran with sudo ================================
-    if !is_root() {
-        eprintln!("Error: You have to run this program with root.");
-        process::exit(1);
-    }
-
     // ==== Detect distro =====================================================
     let _distro = fs::read_to_string("/etc/os-release").unwrap();
     let distro: &str = _distro
@@ -162,6 +158,18 @@ Press Enter to cancel installation
 
     }
 
+    // == System Update
+    header();
+    let input = ask(r#"
+====== Update system packages before building? ======
+
+1) Yes
+
+2) No
+    "#);
+
+    let update_packages = to_int(&input, 1, 2);
+
 
     // ==== Confirmation ======================================================
     header();
@@ -174,44 +182,138 @@ Press Enter to cancel installation
     println!("    Latest Version:           {}", if is_latest_version {"True"} else {"False"});
     println!("    Install Generic Config:   {}", if use_generic_config {"True"} else {"False"});
 
-    
+
     // ==== Installation ======================================================
-    //
+
     // === Waywall installation
-    waywall(waywall_install, distro, waywall_release_tag, use_generic_config, user);
+    waywall(waywall_install, distro, waywall_release_tag, user, update_packages);
+
+    // == Install Generic Config
+    if use_generic_config {
+        install_generic(user);
+    }
 }
 
-fn waywall(itype: i32, distro: &str, waywall_tag: &str, use_generic_config: bool, user: &str) {
+fn waywall(itype: i32, distro: &str, waywall_tag: &str, user: &str, update_packages: i32) {
+
+    if update_packages == 1 {
+        update_system_packages(distro);
+    }
+
     // Install waywall
-    println!("curl -fsSL https://github.com/tesselslate/waywall/releases/download/{}/waywall-0.5-1-x86_64.pkg.tar.zst -o /tmp/waywall.pkg.tar.zst", waywall_tag);
     if itype == 1 {
         // Download the waywall package
         match distro {
-            "arch" => run_command(&format!("curl -fsSL https://github.com/tesselslate/waywall/releases/download/{}/waywall-0.5-1-x86_64.pkg.tar.zst -o /tmp/waywall.pkg.tar.zst", waywall_tag)),
-            "fedora" => run_command(&format!("curl -fsSL https://github.com/tesselslate/waywall/releases/download/{}/waywall-0.5-1.fc42.x86_64.rpm -o /tmp/waywall.rpm", waywall_tag)),
-            "debian" => run_command(&format!("curl -fsSL https://github.com/tesselslate/waywall/releases/download/{}/waywall_0.5-1_amd64.deb -o /tmp/waywall.deb", waywall_tag)),
+            "arch" => run_command(&format!("curl -fsSL {}/releases/download/{}/waywall-0.5-1-x86_64.pkg.tar.zst -o /tmp/waywall.pkg.tar.zst", WAYWALL_REPO_URL, waywall_tag)),
+            "fedora" => run_command(&format!("curl -fsSL {}/releases/download/{}/waywall-0.5-1.fc42.x86_64.rpm -o /tmp/waywall.rpm", WAYWALL_REPO_URL, waywall_tag)),
+            "debian" => run_command(&format!("curl -fsSL {}/releases/download/{}/waywall_0.5-1_amd64.deb -o /tmp/waywall.deb", WAYWALL_REPO_URL, waywall_tag)),
             _ => println!("Unknown distro type found: {}", distro),
         }
         // Install the waywall package
         match distro {
-            "arch" => run_command("pacman -U /tmp/waywall.pkg.tar.zst"),
-            "fedora" => run_command("dnf localinstall /tmp/waywall.rpm"),
-            "debian" => run_command("apt install -y /tmp/waywall.deb"),
-            _ => println!("Unknown distro type found: {}", distro),
+            "arch" => run_command("sudo pacman -U /tmp/waywall.pkg.tar.zst"),
+            "fedora" => run_command("sudo dnf install -y /tmp/waywall.rpm"),
+            "debian" => run_command("sudo apt install -y /tmp/waywall.deb"),
+            _ => {
+                println!("Unknown distro type found: {}", distro);
+                process::exit(1);
+            },
         }
     }
-    else {
-        // Build from source with ByPaco's script
-        run_command("git clone https://github.com/tesselslate/waywall.git /tmp/waywall && git clone https://github.com/pacur/pacur.git /tmp/waywall/pacur");
-        run_command("bash -c \"cd /tmp/waywall/pacur; find . -mindepth 1 -maxdepth 1 -type d \\( ! -name 'archlinux' ! -name 'debian-trixie' ! -name 'fedora-42' \\) -exec rm -rf {} + && for dir in */; do podman build --rm -t \\\"pacur/${dir%/}\\\" \\\"$dir\\\"; done\"");
-        run_command(&format!("(cd /tmp/waywall; ./build-packages.sh --{})", distro));
+    else if itype == 2 {
+        // Build from source
+        build_from_source(distro, user);
     }
-    if use_generic_config {
-        // Download generic
-        println!("Downloading Gore's generic config");
-        run_command(&format!("[ -d /home/{}/.config/waywall ] && mv /home/{}/.config/waywall /home/{}/.config/waywall.bkp >/dev/null 2>&1 || true", user, user, user)); // Check for existing configuration and incase of it existing move it to a backup
-        run_command(&format!("git clone https://github.com/arjuncgore/waywall_generic_config.git /home/{}/.config/waywall", user)); // Download it
-        println!("Generic config downloaded!");
+}
+
+fn build_from_source(distro: &str, user: &str) {
+    // Install waywall-working-git on Arch if yay exists (future: check if they're using paru instead?)
+    if distro == "arch" && command_exists("yay") {
+        println!("yay package manager detected, installing/updating waywall-working-git from the AUR");
+        run_command("yay -S --needed --noconfirm waywall-working-git");
+        return;
+    }
+
+    // clone + install otherwise
+    let waywall_dir = format!("/home/{}/waywall", user);
+    install_build_deps(distro);
+    clone_waywall_helper(&waywall_dir);
+    if distro == "debian" {
+        run_command(&format!("cd {} && CC=clang make", waywall_dir));
+    }
+    else {
+        run_command(&format!("cd {} && make", waywall_dir));
+    }
+    run_command(&format!("chown -R {}:{} {}", user, user, waywall_dir));
+}
+
+fn install_build_deps(distro: &str) {
+    println!("Installing build dependencies for {}", distro);
+    match distro {
+        "arch" => run_command(
+            "sudo pacman -S --needed --noconfirm base-devel git meson ninja \
+                libegl libgles luajit libspng wayland wayland-protocols \
+                libxcb libxkbcommon xorg-xwayland",
+        ),
+        "fedora" => run_command(
+            "sudo dnf install -y gcc make cmake meson ninja-build pkgconf-pkg-config git \
+                wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGLES-devel \
+                luajit-devel libspng-devel libxkbcommon-devel libxcb-devel \
+                xorg-x11-server-Xwayland-devel",
+        ),
+        "debian" => {
+            run_command("apt update");
+            run_command(
+                "sudo apt install -y --no-install-recommends build-essential clang git meson \
+                    ninja-build pkg-config cmake wayland-protocols libwayland-dev \
+                    libegl-dev libgles-dev libspng-dev libluajit-5.1-dev libxkbcommon-dev \
+                    libxcb1-dev libxcb-composite0-dev libxcb-res0-dev libxcb-xtest0-dev xwayland",
+            )
+        }
+        _ => {
+            println!("Unknown distro type found: {}", distro);
+            process::exit(1);
+        }
+    }
+}
+
+fn clone_waywall_helper(waywall_dir: &str) {
+    if Path::new(&format!("{}/.git", waywall_dir)).exists() {
+        println!(
+            "Existing waywall checkout found at {}, pulling latest",
+            waywall_dir
+        );
+        run_command(&format!("git -C {} fetch", waywall_dir));
+        run_command(&format!("git -C {} pull", waywall_dir));
+    } else {
+        println!("Cloning waywall into {}", waywall_dir);
+        run_command(&format!("git clone {} {}", WAYWALL_REPO_URL, waywall_dir));
+    }
+}
+
+fn command_exists(cmd: &str) -> bool {
+    Command::new("sh")
+        .arg("-c")
+        .arg(format!("command -v {} >/dev/null 2>&1", cmd))
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn install_generic(user: &str) {
+    // Download generic
+    println!("Downloading Gore's generic config");
+    run_command(&format!("[ -d /home/{}/.config/waywall ] && mv /home/{}/.config/waywall /home/{}/.config/waywall.bkp >/dev/null 2>&1 || true", user, user, user)); // Check for existing configuration and incase of it existing move it to a backup
+    run_command(&format!("git clone https://github.com/arjuncgore/waywall_generic_config.git /home/{}/.config/waywall", user)); // Download it
+    println!("Generic config downloaded!");
+}
+
+fn update_system_packages(distro: &str) {
+    match distro {
+        "arch" =>   run_command("sudo pacman -Syu"),
+        "fedora" => run_command("sudo dnf upgrade -y"),
+        "debian" => run_command("sudo apt update && sudo apt full-upgrade -y"),
+        _ => println!("Unknown distro type found: {}", distro),
     }
 }
 
@@ -268,4 +370,3 @@ fn run_command(cmd: &str) {
         eprintln!("Command failed with status: {}", status);
     }
 }
-
