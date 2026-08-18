@@ -158,6 +158,18 @@ Press Enter to cancel installation
 
     }
 
+    // == System Update
+    header();
+        let input = ask(r#"
+====== Update system packages before building? ======
+
+1) Yes
+
+2) No
+    "#);
+
+    let update_packages = to_int(&input, 1, 2);
+
 
     // ==== Confirmation ======================================================
     header();
@@ -174,7 +186,7 @@ Press Enter to cancel installation
     // ==== Installation ======================================================
 
     // === Waywall installation
-    waywall(waywall_install, distro, waywall_release_tag, user);
+    waywall(waywall_install, distro, waywall_release_tag, user, update_packages);
 
     // == Install Generic Config
     if use_generic_config {
@@ -182,7 +194,12 @@ Press Enter to cancel installation
     }
 }
 
-fn waywall(itype: i32, distro: &str, waywall_tag: &str, user: &str) {
+fn waywall(itype: i32, distro: &str, waywall_tag: &str, user: &str, update_packages: i32) {
+
+    if update_packages == 1 {
+        update_system_packages(distro);
+    }
+
     // Install waywall
     if itype == 1 {
         // Download the waywall package
@@ -194,9 +211,9 @@ fn waywall(itype: i32, distro: &str, waywall_tag: &str, user: &str) {
         }
         // Install the waywall package
         match distro {
-            "arch" => run_command("pacman -U /tmp/waywall.pkg.tar.zst"),
-            "fedora" => run_command("dnf localinstall /tmp/waywall.rpm"),
-            "debian" => run_command("apt install -y /tmp/waywall.deb"),
+            "arch" => run_command("sudo pacman -U /tmp/waywall.pkg.tar.zst"),
+            "fedora" => run_command("sudo dnf localinstall /tmp/waywall.rpm"),
+            "debian" => run_command("sudo apt install -y /tmp/waywall.deb"),
             _ => {
                 println!("Unknown distro type found: {}", distro);
                 process::exit(1);
@@ -229,12 +246,12 @@ fn install_build_deps(distro: &str) {
     println!("Installing build dependencies for {}", distro);
     match distro {
         "arch" => run_command(
-            "pacman -Syu --needed --noconfirm base-devel git meson ninja \
+            "sudo pacman -S --needed --noconfirm base-devel git meson ninja \
              libegl libgles luajit libspng wayland wayland-protocols \
              libxcb libxkbcommon xorg-xwayland",
         ),
         "fedora" => run_command(
-            "dnf install -y gcc make cmake meson ninja-build pkgconf-pkg-config git \
+            "sudo dnf install -y gcc make cmake meson ninja-build pkgconf-pkg-config git \
              wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGLES-devel \
              luajit-devel libspng-devel libxkbcommon-devel libxcb-devel \
              xorg-x11-server-Xwayland-devel",
@@ -242,7 +259,7 @@ fn install_build_deps(distro: &str) {
         "debian" => {
             run_command("apt update");
             run_command(
-                "apt install -y --no-install-recommends build-essential git meson \
+                "sudo apt install -y --no-install-recommends build-essential git meson \
                  ninja-build pkg-config cmake wayland-protocols libwayland-dev \
                  libegl-dev libgles-dev libspng-dev libluajit-5.1-dev libxkbcommon-dev \
                  libxcb1-dev libxcb-composite0-dev libxcb-res0-dev libxcb-xtest0-dev xwayland",
@@ -285,6 +302,16 @@ fn install_generic(user: &str) {
     run_command(&format!("git clone https://github.com/arjuncgore/waywall_generic_config.git /home/{}/.config/waywall", user)); // Download it
     println!("Generic config downloaded!");
 }
+
+fn update_system_packages(distro: &str) {
+    match distro {
+        "arch" =>   run_command("sudo pacman -Syu"),
+        "fedora" => run_command("sudo dnf upgrade -y"),
+        "debian" => run_command("sudo apt update && sudo apt full-upgrade -y"),
+        _ => println!("Unknown distro type found: {}", distro),
+    }
+}
+
 fn header() {
     clearscreen::clear().expect("Failed to clear screen");
     println!(r#"=====================================================
