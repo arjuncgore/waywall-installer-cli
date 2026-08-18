@@ -212,7 +212,7 @@ fn waywall(itype: i32, distro: &str, waywall_tag: &str, user: &str, update_packa
         // Install the waywall package
         match distro {
             "arch" => run_command("sudo pacman -U /tmp/waywall.pkg.tar.zst"),
-            "fedora" => run_command("sudo dnf localinstall /tmp/waywall.rpm"),
+            "fedora" => run_command("sudo dnf install -y /tmp/waywall.rpm"),
             "debian" => run_command("sudo apt install -y /tmp/waywall.deb"),
             _ => {
                 println!("Unknown distro type found: {}", distro);
