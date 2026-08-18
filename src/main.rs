@@ -238,7 +238,12 @@ fn build_from_source(distro: &str, user: &str) {
     let waywall_dir = format!("/home/{}/waywall", user);
     install_build_deps(distro);
     clone_waywall_helper(&waywall_dir);
-    run_command(&format!("cd {} && make", waywall_dir));
+    if distro == "debian" {
+        run_command(&format!("cd {} && CC=clang make", waywall_dir));
+    }
+    else {
+        run_command(&format!("cd {} && make", waywall_dir));
+    }
     run_command(&format!("chown -R {}:{} {}", user, user, waywall_dir));
 }
 
@@ -259,7 +264,7 @@ fn install_build_deps(distro: &str) {
         "debian" => {
             run_command("apt update");
             run_command(
-                "sudo apt install -y --no-install-recommends build-essential git meson \
+                "sudo apt install -y --no-install-recommends build-essential clang git meson \
                  ninja-build pkg-config cmake wayland-protocols libwayland-dev \
                  libegl-dev libgles-dev libspng-dev libluajit-5.1-dev libxkbcommon-dev \
                  libxcb1-dev libxcb-composite0-dev libxcb-res0-dev libxcb-xtest0-dev xwayland",
