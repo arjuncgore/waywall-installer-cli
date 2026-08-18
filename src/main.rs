@@ -160,7 +160,7 @@ Press Enter to cancel installation
 
     // == System Update
     header();
-        let input = ask(r#"
+    let input = ask(r#"
 ====== Update system packages before building? ======
 
 1) Yes
@@ -182,7 +182,7 @@ Press Enter to cancel installation
     println!("    Latest Version:           {}", if is_latest_version {"True"} else {"False"});
     println!("    Install Generic Config:   {}", if use_generic_config {"True"} else {"False"});
 
-    
+
     // ==== Installation ======================================================
 
     // === Waywall installation
@@ -252,22 +252,22 @@ fn install_build_deps(distro: &str) {
     match distro {
         "arch" => run_command(
             "sudo pacman -S --needed --noconfirm base-devel git meson ninja \
-             libegl libgles luajit libspng wayland wayland-protocols \
-             libxcb libxkbcommon xorg-xwayland",
+                libegl libgles luajit libspng wayland wayland-protocols \
+                libxcb libxkbcommon xorg-xwayland",
         ),
         "fedora" => run_command(
             "sudo dnf install -y gcc make cmake meson ninja-build pkgconf-pkg-config git \
-             wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGLES-devel \
-             luajit-devel libspng-devel libxkbcommon-devel libxcb-devel \
-             xorg-x11-server-Xwayland-devel",
+                wayland-devel wayland-protocols-devel mesa-libEGL-devel mesa-libGLES-devel \
+                luajit-devel libspng-devel libxkbcommon-devel libxcb-devel \
+                xorg-x11-server-Xwayland-devel",
         ),
         "debian" => {
             run_command("apt update");
             run_command(
                 "sudo apt install -y --no-install-recommends build-essential clang git meson \
-                 ninja-build pkg-config cmake wayland-protocols libwayland-dev \
-                 libegl-dev libgles-dev libspng-dev libluajit-5.1-dev libxkbcommon-dev \
-                 libxcb1-dev libxcb-composite0-dev libxcb-res0-dev libxcb-xtest0-dev xwayland",
+                    ninja-build pkg-config cmake wayland-protocols libwayland-dev \
+                    libegl-dev libgles-dev libspng-dev libluajit-5.1-dev libxkbcommon-dev \
+                    libxcb1-dev libxcb-composite0-dev libxcb-res0-dev libxcb-xtest0-dev xwayland",
             )
         }
         _ => {
