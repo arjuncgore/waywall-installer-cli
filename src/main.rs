@@ -3,6 +3,8 @@ use std::process::Command;     // Commands
 use std::process;              // Process handling
 use std::fs;                   // Read file
 use std::path::Path;           // Check existing checkout
+use lazy_regex;                // Regex replace
+use std::env;                  // Env variables
 
 const WAYWALL_REPO_URL: &str = "https://github.com/tesselslate/waywall";
 
@@ -21,7 +23,7 @@ fn main() {
     // ==== Options (defaults) ================================================
     let installation_type: i32;                     // 0: cancel    1: default  2: custom
     let mut waywall_install: i32 = 1;               // 0: cancel    1: stable   2: latest   3: skip
-    let mut instances: Vec<&str> = Vec::new();      // Vector of instance names
+    let mut instances: Vec<String> = Vec::new();      // Vector of instance names
     let mut is_nvidia: bool = false;                // For the environment variable
     let mut is_internal_gpu: bool = false;          // If needed to not check "Use Discrete GPU"
     let mut is_latest_version: bool = false;        // For all the 26.1 tech
@@ -77,12 +79,18 @@ Press Enter to cancel installation
         }
 
         // == instances =======================================================
-        let mut instance_options: Vec<&str> = Vec::new(); // Vector of existing instances
+        let instance_output = Command::new("sh")
+            .arg("-c")
+            .arg(r#"for d in ~/.local/share/PrismLauncher/instances/*/; do basename "$d"; done"#)
+            .output()
+            .expect("failed to execute")
+            .stdout;
 
-        // ADD INSTANCES TEMP
-        instance_options.push("RSG");
-        instance_options.push("SSG");
-        instance_options.push("Ranked");
+        let instance_options: Vec<String> = String::from_utf8_lossy(&instance_output)
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(String::from)
+            .collect();
 
         let mut instances_prompt: String = String::from("\n====== Which instances do you want to set up? =======\n         type each instance number (eg. 123)\n\n0) None\n\n"); 
 
@@ -92,14 +100,18 @@ Press Enter to cancel installation
 
         header();
         let input = ask(&instances_prompt);
+        let trimmed = input.trim();
 
-        if to_int(&input, 0, 0) != 0 {
-            for digit in input.chars().filter_map(|c| c.to_digit(10)) {
-                let index = digit as usize;
-
-                if index > 0 && index <= instance_options.len() {
-                    let choice = instance_options[index - 1];
-                    instances.push(choice);
+        if trimmed != "0" && !trimmed.is_empty() {
+            for c in trimmed.chars() {
+                if let Some(digit) = c.to_digit(10) {
+                    let index = digit as usize;
+                    if index > 0 && index <= instance_options.len() {
+                        let choice = instance_options[index - 1].clone();
+                        instances.push(choice);
+                    } else {
+                        eprintln!("Ignoring invalid selection: {}", index);
+                    }
                 }
             }
         }
@@ -186,12 +198,12 @@ Press Enter to cancel installation
     // ==== Installation ======================================================
 
     // === Waywall installation
-    waywall(waywall_install, distro, waywall_release_tag, user, update_packages);
-
+    //waywall(waywall_install, distro, waywall_release_tag, user, update_packages);
+    prism(instances, is_nvidia, is_internal_gpu);
     // == Install Generic Config
-    if use_generic_config {
-        install_generic(user);
-    }
+    //if use_generic_config {
+    //    install_generic(user);
+    //}
 }
 
 fn waywall(itype: i32, distro: &str, waywall_tag: &str, user: &str, update_packages: i32) {
@@ -314,6 +326,45 @@ fn update_system_packages(distro: &str) {
         "fedora" => run_command("sudo dnf upgrade -y"),
         "debian" => run_command("sudo apt update && sudo apt full-upgrade -y"),
         _ => println!("Unknown distro type found: {}", distro),
+    }
+}
+
+fn prism(instances: Vec<String>, is_nvidia: bool, is_internal: bool) {
+    let home = env::var("HOME").unwrap();
+    for i in instances.iter() {
+        let path = format!("{}/.local/share/PrismLauncher/instances/{}/instance.cfg", home, i);
+        let mut conf = fs::read_to_string(&path).unwrap();
+
+        if is_nvidia {
+            if !lazy_regex::regex_is_match!(r#"(?m)^Env="#, &conf) {
+                conf = lazy_regex::regex_replace!(
+                    r#"\[General\]"#,
+                    &conf,
+                    "[General]\nEnv=\"{}\""
+                ).into_owned();
+            }
+            conf = lazy_regex::regex_replace!(
+                r#"Env="\{.*?\}""#,
+                &conf,
+                r#"Env="{\"__GL_THREADED_OPTIMIZATIONS\":\"0\"}""#
+            ).into_owned();
+        }
+        if is_internal {
+            if !conf.contains("UseDiscreteGpu") {
+                conf = lazy_regex::regex_replace!(
+                    r#"\[General\]"#,
+                    &conf,
+                    "[General]\nUseDiscreteGpu=true"
+                ).into_owned();
+            }
+            conf = lazy_regex::regex_replace!(
+                r#"UseDiscreteGpu=(true|false)"#,
+                &conf,
+                "UseDiscreteGpu=true"
+            ).into_owned();
+        }
+
+        fs::write(&path, conf).unwrap();
     }
 }
 
