@@ -198,12 +198,12 @@ Press Enter to cancel installation
     // ==== Installation ======================================================
 
     // === Waywall installation
-    //waywall(waywall_install, distro, waywall_release_tag, user, update_packages);
+    waywall(waywall_install, distro, waywall_release_tag, user, update_packages);
     prism(instances, is_nvidia, is_internal_gpu);
     // == Install Generic Config
-    //if use_generic_config {
-    //    install_generic(user);
-    //}
+    if use_generic_config {
+        install_generic(user);
+    }
 }
 
 fn waywall(itype: i32, distro: &str, waywall_tag: &str, user: &str, update_packages: i32) {
